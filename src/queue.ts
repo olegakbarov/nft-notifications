@@ -14,5 +14,5 @@ export const q: queueAsPromised<Task> = fastq.promise(telegramMailer, 1);
 
 async function telegramMailer({ chatId, text }: Task): Promise<void> {
   // No need for a try-catch block, fastq handles errors automatically
-  await telegram.sendMessage(chatId, text);
+  await telegram.sendMessage(chatId, text, { parse_mode: "HTML" });
 }

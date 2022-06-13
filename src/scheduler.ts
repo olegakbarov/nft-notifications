@@ -1,5 +1,6 @@
 import Bree from "bree";
 import path from "node:path";
+import ms from "ms";
 
 export const scheduler = new Bree({
   root: path.join(__dirname, "jobs"),
@@ -11,7 +12,8 @@ export const scheduler = new Bree({
     },
     {
       name: "fetchLatestSalesForCollection",
-      interval: "15s",
+      interval: "30s",
+      closeWorkerAfterMs: ms("30s"),
     },
   ],
   errorHandler: (error, workerMetadata) => {

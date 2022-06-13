@@ -7,28 +7,32 @@ import { zdk } from "../zdk";
 import { gqlClient } from "../graphql";
 import { q } from "../queue";
 import { end, log } from "../logger";
+import { contracts } from "../constants";
 
 const createMessageFromData = (saleWithToken: SaleWithToken) => {
+  const address = saleWithToken.token?.collectionAddress;
   const collName = saleWithToken.token?.collectionName;
   const tokenName = saleWithToken.token?.name;
-  const ethPrice = saleWithToken.sale.price.nativePrice;
+  const ethPrice = saleWithToken.sale.price.nativePrice.decimal;
   const usdPrice = saleWithToken.sale.price.nativePrice.decimal;
 
-  return `${collName}: ${tokenName} was sold for ${ethPrice}ETH ($${usdPrice})`;
+  return `<a href="https://etherscan.io/address/${address}">${
+    collName || address
+  }: ${tokenName} was sold for ${ethPrice} ETH ($${usdPrice})`;
 };
 
 type LatestCollectionSubscription = {
-  collectionAddress: string;
-  chatId: number;
+  collection_address: string;
+  chat_id: number;
 };
 
 (async () => {
   const subscribedUsersList: any = await gqlClient.request(
     `
       query LatestSalesSubs {
-          subs_latest_sales(limit: 100) {
-            collectionAddress
-            chatId
+          subs_latest_sales(limit: 2000) {
+            collection_address
+            chat_id
         }
       }
     `
@@ -36,16 +40,13 @@ type LatestCollectionSubscription = {
 
   const subs: LatestCollectionSubscription[] =
     subscribedUsersList?.subs_latest_sales;
-  const collectionAddresses: string[] = subs.map(
-    (sub: any) => sub.collectionAddress
-  );
+
   // const recipientsChatIds: number[] = subs.map((sub: any) => sub.chatId);
-
-  log(`subscribedUsersList: ${JSON.stringify(subscribedUsersList)}`);
-
+  // log(`subscribedUsersList: ${JSON.stringify(subscribedUsersList)}`);
   // if collectionAddresses length > than api accepts we are screwed
+
   const { sales } = await zdk.sales({
-    where: { collectionAddresses: collectionAddresses },
+    where: { collectionAddresses: contracts },
     sort: {
       sortDirection: SortDirection.Desc,
       sortKey: SaleSortKey.Time,
@@ -54,25 +55,35 @@ type LatestCollectionSubscription = {
     includeFullDetails: false,
   });
 
+  log(`sales.length: ${sales.nodes.length}`);
+
   if (!sales) {
-    throw new Error("Subscribtions fetch was not successful");
+    log("ERROR!: Subscribtions fetch was not successful");
+    end();
   }
 
   for (const item of subs) {
+    log(`item.collection_address: ${item.collection_address}`);
+
     const latestSalePerCollection = sales.nodes.find(
-      (tws) => tws.token?.collectionAddress === item.collectionAddress
+      (tws) => tws.sale.collectionAddress === item.collection_address
     );
+
+    log(JSON.stringify(latestSalePerCollection));
+
     if (!latestSalePerCollection) {
-      console.log(`No sale found for ${item.collectionAddress}`);
-      return;
+      // log(`No sale found for ${item.collection_address}`);
+      continue;
+    } else {
+      log(`Sale found for ${item.collection_address}`);
+      await q
+        .push({
+          chatId: item.chat_id,
+          // check SaleWithToken type signature
+          text: createMessageFromData(latestSalePerCollection as any),
+        })
+        .catch((err) => log(JSON.stringify(err)));
     }
-    await q
-      .push({
-        chatId: item.chatId,
-        // check SaleWithToken type signature
-        text: createMessageFromData(latestSalePerCollection as any),
-      })
-      .catch((err) => console.error(err));
   }
 
   end();
